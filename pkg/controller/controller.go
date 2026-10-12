@@ -192,6 +192,7 @@ func NewController(
 			if ok {
 				ctrl.logger.Infof("Deleting %s.%s from cache", r.Name, r.Namespace)
 				ctrl.canaries.Delete(fmt.Sprintf("%s.%s", r.Name, r.Namespace))
+				ctrl.recorder.Control.Forget(&r)
 			}
 		},
 	})
@@ -201,6 +202,8 @@ func NewController(
 
 // Run starts the K8s workers and the canary scheduler
 func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
+	c.recorder.Control.Enable()
+	defer c.recorder.Control.Disable()
 	defer utilruntime.HandleCrash()
 	defer c.workqueue.ShutDown()
 
@@ -282,10 +285,12 @@ func (c *Controller) syncHandler(key string) error {
 	if cd.Spec.RevertOnDeletion && cd.ObjectMeta.DeletionTimestamp != nil {
 		// If finalizers have been previously removed proceed
 		if !hasFinalizer(cd) {
+			c.recorder.Control.CompleteOperation(cd, "finalize")
 			c.logger.Infof("Canary %s.%s has been finalized", cd.Name, cd.Namespace)
 			return nil
 		}
 
+		c.recorder.Control.StartOperation(cd, "finalize")
 		if cd.Status.Phase != flaggerv1.CanaryPhaseTerminated {
 			if err := c.finalize(cd); err != nil {
 				c.logCanaryEvent(cd, fmt.Sprintf("Unable to finalize canary: %v", err), zapcore.ErrorLevel)
@@ -299,6 +304,7 @@ func (c *Controller) syncHandler(key string) error {
 			return fmt.Errorf("unable to remove finalizer for canary %s.%s: %w", cd.Name, cd.Namespace, err)
 		}
 
+		c.recorder.Control.CompleteOperation(cd, "finalize")
 		// record event
 		c.recordEventInfof(cd, "Terminated canary %s.%s", cd.Name, cd.Namespace)
 

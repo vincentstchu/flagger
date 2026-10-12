@@ -1,0 +1,18 @@
+name: Control metrics replay
+on:
+  pull_request:
+    branches: [istio-canary]
+    paths: ['pkg/controller/**', 'pkg/metrics/**', 'go.mod', 'go.sum', '.github/workflows/control-metrics.yaml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+      - name: Replay emitted control state and operation completion hooks
+        run: go test -race ./pkg/metrics ./pkg/controller -run 'TestControlReplay|TestControlMetrics'

@@ -26,6 +26,7 @@ import (
 
 // Recorder records the canary analysis as Prometheus metrics
 type Recorder struct {
+	Control  *ControlCollector
 	info     *prometheus.GaugeVec
 	duration *prometheus.HistogramVec
 	total    *prometheus.GaugeVec
@@ -36,6 +37,7 @@ type Recorder struct {
 
 // NewRecorder creates a new recorder and registers the Prometheus metrics
 func NewRecorder(controller string, register bool) Recorder {
+	control := newControlCollector(controller)
 	info := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Subsystem: controller,
 		Name:      "info",
@@ -75,6 +77,7 @@ func NewRecorder(controller string, register bool) Recorder {
 	}, []string{"canary_name", "primary_name", "canary_namespace", "canary_metric", "canary_metric_type"})
 
 	if register {
+		prometheus.MustRegister(control)
 		prometheus.MustRegister(info)
 		prometheus.MustRegister(duration)
 		prometheus.MustRegister(total)
@@ -84,6 +87,7 @@ func NewRecorder(controller string, register bool) Recorder {
 	}
 
 	return Recorder{
+		Control:  control,
 		info:     info,
 		duration: duration,
 		total:    total,

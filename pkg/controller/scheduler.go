@@ -94,6 +94,7 @@ func (c *Controller) nextStepWeight(canary *flaggerv1.Canary, canaryWeight int) 
 // for new canaries new jobs are created and started
 // for the removed canaries the jobs are stopped and deleted
 func (c *Controller) scheduleCanaries() {
+	defer c.recorder.Control.Scheduled()
 	current := make(map[string]string)
 	stats := make(map[string]int)
 
@@ -125,6 +126,7 @@ func (c *Controller) scheduleCanaries() {
 				analysisInterval: analysisInterval,
 			}
 
+			c.recorder.Control.Expect(cn)
 			c.jobs[name] = newJob
 			newJob.Start()
 		}
@@ -180,6 +182,8 @@ func (c *Controller) advanceCanary(name string, namespace string) {
 		return
 	}
 
+	c.recorder.Control.Observe(cd)
+	defer c.recorder.Control.Completed(cd)
 	if cd.Spec.Suspend {
 		msg := "skipping canary run as object is suspended"
 		c.logger.With("canary", fmt.Sprintf("%s.%s", name, namespace)).
@@ -1087,6 +1091,7 @@ func (c *Controller) checkCanaryStatus(canary *flaggerv1.Canary, canaryControlle
 		if isApproved := c.runConfirmRolloutHooks(canary, canaryController); !isApproved {
 			return false
 		}
+		c.recorder.Control.StartOperation(canary, "start")
 
 		canaryPhaseProgressing := canary.DeepCopy()
 		canaryPhaseProgressing.Status.Phase = flaggerv1.CanaryPhaseProgressing
@@ -1108,6 +1113,7 @@ func (c *Controller) checkCanaryStatus(canary *flaggerv1.Canary, canaryControlle
 			return false
 		}
 		c.recorder.SetStatus(canary, flaggerv1.CanaryPhaseProgressing)
+		c.recorder.Control.CompleteOperation(canary, "start")
 		canary, err = c.flaggerClient.FlaggerV1beta1().Canaries(canary.Namespace).Get(context.TODO(), canary.Name, metav1.GetOptions{})
 		if err != nil {
 			c.logCanaryEvent(canary, "Failed get canary", zapcore.ErrorLevel)
@@ -1137,6 +1143,7 @@ func (c *Controller) hasCanaryRevisionChanged(canary *flaggerv1.Canary, canaryCo
 
 func (c *Controller) rollback(canary *flaggerv1.Canary, canaryController canary.Controller,
 	meshRouter router.Interface, scalerReconciler canary.ScalerReconciler) {
+	c.recorder.Control.StartOperation(canary, "rollback")
 	if canary.Status.FailedChecks >= canary.GetAnalysisThreshold() {
 		c.recordEventWarningf(canary, "Rolling back %s.%s failed checks threshold reached %v",
 			canary.Name, canary.Namespace, canary.Status.FailedChecks)
@@ -1188,6 +1195,7 @@ func (c *Controller) rollback(canary *flaggerv1.Canary, canaryController canary.
 	}
 
 	c.recorder.SetStatus(canary, flaggerv1.CanaryPhaseFailed)
+	c.recorder.Control.CompleteOperation(canary, "rollback")
 	c.runPostRolloutHooks(canary, flaggerv1.CanaryPhaseFailed)
 }
 

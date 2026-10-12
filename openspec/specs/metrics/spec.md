@@ -1,6 +1,6 @@
 # Flagger Metrics Specification
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Metrics Collection
 
