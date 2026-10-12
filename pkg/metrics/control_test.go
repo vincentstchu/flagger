@@ -21,6 +21,7 @@ func replayCollector() (*ControlCollector, *flaggerv1.Canary, *time.Time) {
 	cd.Status.Phase = flaggerv1.CanaryPhaseProgressing
 	cd.Status.LastAppliedSpec = "revision-in-memory"
 	cc.Enable()
+	cc.Scheduled()
 	cc.Observe(cd)
 	return cc, cd, &now
 }
@@ -247,5 +248,54 @@ func TestControlReplayRestartAndFinalizerRecoveryRetention(t *testing.T) {
 	*now = now.Add(10 * time.Minute)
 	if has("flagger_canary_finalizer_overdue") {
 		t.Fatal("retired CR retained unbounded metric history")
+	}
+}
+
+func TestControlReplayPendingAndColdScheduling(t *testing.T) {
+	cc, cd, now := replayCollector()
+	cd.Status.Phase = flaggerv1.CanaryPhaseSucceeded
+	cc.Observe(cd)
+	r := prometheus.NewRegistry()
+	r.MustRegister(cc)
+	has := func(name string) bool {
+		ms, err := r.Gather()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range ms {
+			if m.GetName() == name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, op := range []string{"start", "rollback", "finalize"} {
+		name := "flagger_canary_control_overdue"
+		if op == "finalize" {
+			name = "flagger_canary_finalizer_overdue"
+		}
+		cc.StartOperation(cd, op)
+		cc.Observe(cd)
+		cc.Completed(cd)
+		if has(name) {
+			t.Fatal("unfinished action emitted a healthy zero")
+		}
+		cc.CompleteOperation(cd, op)
+		if got := metric(t, cc, name); got != 0 {
+			t.Fatal("completion did not emit recovery")
+		}
+	}
+	cc.Disable()
+	cc.Enable()
+	if has("flagger_scheduler_age_seconds") || has("flagger_canary_control_overdue") {
+		t.Fatal("new leader emitted stale or unearned work health")
+	}
+	*now = now.Add(601 * time.Second)
+	if has("flagger_scheduler_age_seconds") {
+		t.Fatal("unscheduled leader fabricated completion")
+	}
+	cc.Scheduled()
+	if got := metric(t, cc, "flagger_scheduler_age_seconds"); got != 0 {
+		t.Fatal("real scheduling did not emit health")
 	}
 }

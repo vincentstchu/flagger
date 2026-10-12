@@ -19,3 +19,5 @@ Build a source-SHA-bound image, deploy development then production through GitOp
 ## Validation boundary
 
 Collector replay proves emitted semantics, not Datadog evaluation, Kubernetes business recovery or Slack delivery. Those require deployed monitor evidence and the bounded replay acceptance ledger. There is no new paging policy and no automatic issue closure.
+
+The scheduler gauge is absent until the new leader actually completes scheduling. Enabling leadership does not manufacture a zero; the fixed telemetry guard owns that initial Unknown. Pending operations likewise omit healthy zeros until completion or timeout.

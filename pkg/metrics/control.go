@@ -51,7 +51,8 @@ func (cc *ControlCollector) Enable() {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
 	cc.leader = true
-	cc.scheduled = cc.now()
+	cc.scheduled = time.Time{}
+	cc.canaries = make(map[string]*controlState)
 }
 
 func (cc *ControlCollector) Disable() {
@@ -190,7 +191,9 @@ func (cc *ControlCollector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 	now := cc.now()
-	ch <- prometheus.MustNewConstMetric(cc.scheduler, prometheus.GaugeValue, age(now, cc.scheduled))
+	if !cc.scheduled.IsZero() {
+		ch <- prometheus.MustNewConstMetric(cc.scheduler, prometheus.GaugeValue, age(now, cc.scheduled))
+	}
 	for key, s := range cc.canaries {
 		if !s.retiredUntil.IsZero() && !now.Before(s.retiredUntil) {
 			delete(cc.canaries, key)
@@ -210,7 +213,7 @@ func (cc *ControlCollector) Collect(ch chan<- prometheus.Metric) {
 		// After restart/failover, an active unchanged revision is Unknown until
 		// fresh progress/completion is observed or its budget expires. Resetting
 		// this process's clock must not emit an unearned recovery zero.
-		if s.confirmed || overdue == 1 {
+		if (s.confirmed && s.operations["start"].IsZero() && s.operations["rollback"].IsZero()) || overdue == 1 {
 			ch <- prometheus.MustNewConstMetric(cc.overdue, prometheus.GaugeValue, overdue, labels...)
 		}
 		ch <- prometheus.MustNewConstMetric(cc.progressAge, prometheus.GaugeValue, progress, labels...)
@@ -222,7 +225,7 @@ func (cc *ControlCollector) Collect(ch chan<- prometheus.Metric) {
 		if age(now, s.operations["finalize"]) > 600 {
 			finalizer = 1
 		}
-		if s.finalizerConfirmed || finalizer == 1 {
+		if (s.finalizerConfirmed && s.operations["finalize"].IsZero()) || finalizer == 1 {
 			ch <- prometheus.MustNewConstMetric(cc.finalizer, prometheus.GaugeValue, finalizer, labels...)
 		}
 	}
